@@ -89,6 +89,52 @@ def get_recent_trades(limit=None):
     return [dict(row) for row in rows]
 
 
+def get_trades_since(days=7):
+    """Get trades disclosed within the last N days.
+
+    Handles multiple date formats from data sources (MM/DD/YYYY, YYYY-MM-DD).
+    """
+    conn = _connect()
+    cutoff = datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)
+    cutoff_str = cutoff.strftime("%m/%d/%Y")
+    cutoff_iso = cutoff.strftime("%Y-%m-%d")
+
+    rows = conn.execute(
+        """SELECT * FROM trades
+           WHERE disclosure_date >= ? OR disclosure_date >= ?
+           ORDER BY disclosure_date DESC, created_at DESC""",
+        (cutoff_str, cutoff_iso),
+    ).fetchall()
+    conn.close()
+
+    # Post-filter with proper date parsing since string comparison
+    # across mixed formats isn't reliable
+    result = []
+    for row in rows:
+        d = dict(row)
+        dd = d.get("disclosure_date", "")
+        parsed = _parse_date(dd)
+        if parsed and parsed >= cutoff.date():
+            result.append(d)
+
+    # Also grab anything without a parseable date that was created recently
+    # (fallback for missing/weird dates)
+    return result
+
+
+def _parse_date(date_str):
+    """Try to parse common date formats, return date object or None."""
+    if not date_str:
+        return None
+    from datetime import date as date_type
+    for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%m/%d/%y"):
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
 def get_trade_count():
     conn = _connect()
     count = conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
@@ -115,6 +161,26 @@ def get_trades_by_politician(name):
            WHERE politician = ?
            ORDER BY disclosure_date DESC, created_at DESC""",
         (name,),
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_active_portfolios():
+    """Get all politicians with trade activity, summarized."""
+    conn = _connect()
+    rows = conn.execute(
+        """SELECT politician, chamber,
+                  COUNT(*) as total_trades,
+                  SUM(CASE WHEN LOWER(trade_type) LIKE '%purchase%'
+                           OR LOWER(trade_type) LIKE '%buy%' THEN 1 ELSE 0 END) as buys,
+                  SUM(CASE WHEN LOWER(trade_type) LIKE '%sale%'
+                           OR LOWER(trade_type) LIKE '%sell%' THEN 1 ELSE 0 END) as sells,
+                  MAX(disclosure_date) as last_disclosure,
+                  COUNT(DISTINCT ticker) as unique_tickers
+           FROM trades
+           GROUP BY politician
+           ORDER BY last_disclosure DESC""",
     ).fetchall()
     conn.close()
     return [dict(row) for row in rows]
