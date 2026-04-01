@@ -4,20 +4,27 @@ Monitor US politician stock trades (House & Senate) and get updates via a web da
 
 ## Quick Start
 
-```bash
-# 1. Clone the repo
+### Windows (PowerShell)
+
+```powershell
 git clone https://github.com/maneeshg99/TradeTracker.git
 cd TradeTracker
+.\setup.ps1
+```
 
-# 2. Install Python dependencies (requires Python 3.10+)
-pip install -r requirements.txt
+Or if PowerShell scripts are blocked, use the batch file:
+```cmd
+setup.bat
+```
 
-# 3. Generate an API key
-python -c "import config; print(config.generate_api_key())"
-# Save the output — you'll need it below
+Then follow the printed instructions to start the server.
 
-# 4. Run it
-TRADETRACKER_API_KEY=<your-key-here> python main.py
+### macOS / Linux
+
+```bash
+git clone https://github.com/maneeshg99/TradeTracker.git
+cd TradeTracker
+bash setup.sh
 ```
 
 On first run it fetches all trades (takes ~30s), then the server starts on **http://localhost:5050**.
