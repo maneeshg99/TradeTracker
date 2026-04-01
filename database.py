@@ -94,3 +94,64 @@ def get_trade_count():
     count = conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
     conn.close()
     return count
+
+
+def get_politicians():
+    conn = _connect()
+    rows = conn.execute(
+        """SELECT politician, chamber, COUNT(*) as trade_count
+           FROM trades
+           GROUP BY politician
+           ORDER BY politician""",
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_trades_by_politician(name):
+    conn = _connect()
+    rows = conn.execute(
+        """SELECT * FROM trades
+           WHERE politician = ?
+           ORDER BY disclosure_date DESC, created_at DESC""",
+        (name,),
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_holdings_by_politician(name):
+    """Compute net holdings: purchases add, sales subtract."""
+    conn = _connect()
+    rows = conn.execute(
+        """SELECT ticker, asset_description, trade_type, amount,
+                  transaction_date, disclosure_date, owner, ptr_link
+           FROM trades
+           WHERE politician = ? AND ticker IS NOT NULL
+           ORDER BY transaction_date DESC""",
+        (name,),
+    ).fetchall()
+    conn.close()
+
+    holdings = {}
+    for row in rows:
+        row = dict(row)
+        ticker = row["ticker"]
+        if ticker not in holdings:
+            holdings[ticker] = {
+                "ticker": ticker,
+                "asset_description": row["asset_description"],
+                "buys": 0,
+                "sells": 0,
+                "last_trade_date": row["transaction_date"],
+                "last_trade_type": row["trade_type"],
+            }
+        trade_type = (row["trade_type"] or "").lower()
+        if "purchase" in trade_type or "buy" in trade_type:
+            holdings[ticker]["buys"] += 1
+        elif "sale" in trade_type or "sell" in trade_type:
+            holdings[ticker]["sells"] += 1
+
+    # Convert to list sorted by last trade date
+    result = sorted(holdings.values(), key=lambda h: h["last_trade_date"] or "", reverse=True)
+    return result
