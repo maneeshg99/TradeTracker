@@ -1,0 +1,25 @@
+[Unit]
+Description=Politician Trade Tracker - RSS Feed
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/TradeTracker
+ExecStart=/usr/bin/python3 /home/%i/TradeTracker/main.py
+Restart=on-failure
+RestartSec=30
+
+# Set your API key here (or use an EnvironmentFile)
+Environment=TRADETRACKER_API_KEY=CHANGE_ME
+Environment=TRADETRACKER_HOST=0.0.0.0
+Environment=TRADETRACKER_PORT=5050
+Environment=TRADETRACKER_POLL_HOURS=12
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/%i/TradeTracker/data
+
+[Install]
+WantedBy=multi-user.target
