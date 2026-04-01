@@ -427,7 +427,11 @@ def main():
     else:
         logger.info("Authentication DISABLED (set TRADETRACKER_API_KEY to enable)")
 
-    fetch_and_store()
+    # Run initial fetch — don't let failure prevent server from starting
+    try:
+        fetch_and_store()
+    except Exception as e:
+        logger.error("Initial fetch failed (will retry on schedule): %s", e)
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(

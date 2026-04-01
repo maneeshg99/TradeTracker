@@ -71,34 +71,39 @@ def fetch_senate_trades():
         return []
 
     trades = []
-    for entry in data:
-        politician = entry.get("first_name", "") + " " + entry.get("last_name", "")
-        politician = politician.strip() or "Unknown"
-        for t in entry.get("transactions", []):
-            ticker = t.get("ticker", "")
-            if ticker == "--" or ticker == "N/A":
-                ticker = None
-            trade = {
-                "id": _make_id(
-                    politician,
-                    ticker or "",
-                    t.get("transaction_date", ""),
-                    t.get("type", ""),
-                    t.get("amount", ""),
-                ),
-                "politician": politician,
-                "chamber": "Senate",
-                "ticker": ticker,
-                "asset_description": t.get("asset_description"),
-                "trade_type": t.get("type", "unknown"),
-                "amount": t.get("amount"),
-                "transaction_date": t.get("transaction_date"),
-                "disclosure_date": t.get("disclosure_date"),
-                "owner": t.get("owner"),
-                "ptr_link": t.get("ptr_link"),
-                "district": None,
-            }
-            trades.append(trade)
+    for t in data:
+        # Senate data is a flat array — each record has senator info + transaction
+        politician = (t.get("first_name", "") + " " + t.get("last_name", "")).strip()
+        politician = politician or "Unknown"
+        ticker = t.get("ticker", "")
+        if ticker == "--" or ticker == "N/A" or ticker == "":
+            ticker = None
+        owner = t.get("owner", "")
+        if owner == "--":
+            owner = None
+        # Senate uses "date_recieved" (typo in source) as disclosure date
+        disclosure_date = t.get("date_recieved") or t.get("disclosure_date")
+        trade = {
+            "id": _make_id(
+                politician,
+                ticker or "",
+                t.get("transaction_date", ""),
+                t.get("type", ""),
+                t.get("amount", ""),
+            ),
+            "politician": politician,
+            "chamber": "Senate",
+            "ticker": ticker,
+            "asset_description": t.get("asset_description"),
+            "trade_type": t.get("type", "unknown"),
+            "amount": t.get("amount"),
+            "transaction_date": t.get("transaction_date"),
+            "disclosure_date": disclosure_date,
+            "owner": owner,
+            "ptr_link": t.get("ptr_link"),
+            "district": None,
+        }
+        trades.append(trade)
 
     logger.info("Fetched %d Senate trades", len(trades))
     return trades
