@@ -2,8 +2,9 @@ import logging
 from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import Flask, Response, render_template_string
+from flask import Flask, Response, render_template_string, request, abort
 from urllib.parse import quote, unquote
+from functools import wraps
 
 import config
 import database
@@ -18,6 +19,30 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 last_fetch_time = None
+
+
+def _check_auth():
+    """Validate API key from header or query param. Returns True if OK."""
+    if not config.API_KEY:
+        return True  # Auth disabled
+    # Check Authorization header: "Bearer <key>"
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer ") and auth_header[7:] == config.API_KEY:
+        return True
+    # Check ?key= query param (useful for RSS readers and browsers)
+    if request.args.get("key") == config.API_KEY:
+        return True
+    return False
+
+
+@app.before_request
+def require_auth():
+    if not _check_auth():
+        return Response(
+            "Unauthorized. Provide API key via Authorization header or ?key= param.",
+            status=401,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def fetch_and_store():
@@ -91,7 +116,7 @@ INDEX_TEMPLATE = (
     Tracking <strong>{{ count }}</strong> trades from House &amp; Senate.
     Last fetch: {{ fetch_str }}.
     Poll interval: every {{ poll_hours }} hours.
-    <a href="/feed">RSS Feed</a>
+    <a href="/feed{{ key_param }}">RSS Feed</a>
 </p>
 
 <h2>Recent Trades</h2>
@@ -105,7 +130,7 @@ INDEX_TEMPLATE = (
 <tbody>
 {% for t in trades %}
 <tr>
-    <td><a class="politician" href="/politician/{{ t.politician | urlencode }}">{{ t.politician }}</a></td>
+    <td><a class="politician" href="/politician/{{ t.politician | urlencode }}{{ key_param }}">{{ t.politician }}</a></td>
     <td>{{ t.chamber }}</td>
     <td>{{ t.ticker or 'N/A' }}</td>
     <td>{{ t.asset_description[:40] ~ '...' if t.asset_description and t.asset_description|length > 40 else t.asset_description or '' }}</td>
@@ -126,7 +151,7 @@ POLITICIAN_TEMPLATE = (
     + BASE_STYLE
     + "</head><body>"
     + """
-<nav><a href="/">&larr; Back to all trades</a></nav>
+<nav><a href="/{{ key_param }}">&larr; Back to all trades</a></nav>
 <h1>{{ name }}</h1>
 <p class="meta">{{ chamber }} &middot; {{ trade_count }} total trades</p>
 
@@ -182,6 +207,12 @@ POLITICIAN_TEMPLATE = (
 )
 
 
+def _key_param():
+    """Build ?key=... query string to propagate auth through links."""
+    key = request.args.get("key")
+    return f"?key={key}" if key else ""
+
+
 @app.route("/")
 def index():
     count = database.get_trade_count()
@@ -194,6 +225,7 @@ def index():
         fetch_str=fetch_str,
         poll_hours=config.POLL_INTERVAL_HOURS,
         trades=trades,
+        key_param=_key_param(),
         badge_class=lambda t: _trade_badge(t)[0],
         badge_label=lambda t: _trade_badge(t)[1],
     )
@@ -204,7 +236,7 @@ def politician(name):
     name = unquote(name)
     trades = database.get_trades_by_politician(name)
     if not trades:
-        return f"<h1>No trades found for {name}</h1><p><a href='/'>Back</a></p>", 404
+        return f"<h1>No trades found for {name}</h1><p><a href='/{_key_param()}'>Back</a></p>", 404
     holdings = database.get_holdings_by_politician(name)
     chamber = trades[0]["chamber"] if trades else ""
     return render_template_string(
@@ -214,6 +246,7 @@ def politician(name):
         trade_count=len(trades),
         trades=trades,
         holdings=holdings,
+        key_param=_key_param(),
         badge_class=lambda t: _trade_badge(t)[0],
         badge_label=lambda t: _trade_badge(t)[1],
     )
@@ -228,6 +261,14 @@ def rss_feed():
 
 def main():
     database.init_db()
+
+    # Auth info
+    if config.API_KEY:
+        logger.info("Authentication ENABLED")
+        logger.info("  Web UI: http://%s:%d/?key=%s", config.HOST, config.PORT, config.API_KEY)
+        logger.info("  RSS:    http://%s:%d/feed?key=%s", config.HOST, config.PORT, config.API_KEY)
+    else:
+        logger.info("Authentication DISABLED (set TRADETRACKER_API_KEY to enable)")
 
     # Initial fetch
     fetch_and_store()
